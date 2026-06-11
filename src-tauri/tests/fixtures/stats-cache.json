@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "lastComputedDate": "2026-06-09",
+  "dailyModelTokens": [
+    { "date": "2026-06-08", "tokensByModel": { "claude-opus-4-5-20251101": 1000000 } },
+    { "date": "2026-06-09", "tokensByModel": { "claude-sonnet-4-6": 500000, "claude-opus-4-5-20251101": 250000 } }
+  ],
+  "dailyActivity": []
+}

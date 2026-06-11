@@ -1,0 +1,75 @@
+# Claude Usage Meter
+
+A minimal Windows system-tray app that shows your Claude usage at a glance.
+
+The tray icon is a live progress ring of your **session (5-hour) limit** — green, amber, or red as you approach it. Hover the icon for the full picture:
+
+```
+┌──────────────────────────────┐
+│  Claude Usage                │
+│  Session   ▓▓▓▓▓▓░░░░  62%   │
+│  resets 2:30 PM              │
+│  Weekly    ▓▓▓░░░░░░░  34%   │
+│  resets Thu                  │
+│                              │
+│  Today        1.2M tok $4.10 │
+│  ▁▃▂▅▇▄▆   last 7 days       │
+│  Total (30d)  28M tok  ≈$96  │
+│                              │
+│  API key spend (mo)   $12.40 │
+└──────────────────────────────┘
+```
+
+## Features
+
+- **Session & weekly limits** — the same numbers as Claude Code's `/usage`, fetched with your existing Claude Code login. No setup.
+- **Local usage stats** — today's tokens and cost, a 7-day sparkline, and a 30-day total, computed from Claude Code's local transcript data (cost for older history is a blended-rate estimate, marked `≈`).
+- **API key spend (optional)** — month-to-date organization spend via the Anthropic Admin API. Save an admin key (`sk-ant-admin…`) in Settings; it's stored in Windows Credential Manager, never on disk.
+- **Tray niceties** — hover to peek, click to pin, `Esc` to dismiss. Right-click for Refresh now, Settings, Start with Windows, Quit.
+- Lightweight: ~3 MB installer, ~45 MB RAM, no Electron.
+
+## Requirements
+
+- Windows 10/11
+- [Claude Code](https://claude.com/claude-code) installed and signed in (limits and local stats read from `~/.claude`)
+
+## Install
+
+Grab the installer from [Releases](../../releases), or build from source:
+
+```powershell
+# prerequisites: Rust (stable), Node 20+
+npm install
+npm run tauri build
+# installer: src-tauri/target/release/bundle/nsis/
+# portable:  src-tauri/target/release/claude-usage-meter.exe
+```
+
+For development: `npm run tauri dev`.
+
+## How it works
+
+| Data | Source | Refresh |
+|---|---|---|
+| Session / weekly % | Anthropic OAuth usage endpoint, using the token Claude Code already stores in `~/.claude/.credentials.json` | 60 s |
+| Today / 7-day / 30-day stats | `~/.claude/projects/**/*.jsonl` transcripts (mtime-bounded, per-file parse cache) + `stats-cache.json` history | 30 s |
+| API spend | `GET /v1/organizations/cost_report` with your admin key | 10 min |
+
+Everything degrades gracefully: network down or token expired shows last-known data with a `stale` badge — no error dialogs. The app never sends your data anywhere except to Anthropic's own APIs.
+
+## Privacy & safety notes
+
+- The OAuth token is read from (and on expiry, refreshed back into) Claude Code's own credentials file — writes are atomic and yield if Claude Code refreshed first.
+- The Admin API key lives in Windows Credential Manager under `claude-usage-meter`.
+- No telemetry, no third-party endpoints.
+
+## Tests
+
+```powershell
+cd src-tauri
+cargo test   # 28 tests: JSONL parsing/dedup, pricing, OAuth refresh paths (mocked), cost-report pagination, icon rendering
+```
+
+## License
+
+[GPL-2.0](LICENSE)

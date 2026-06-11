@@ -1,0 +1,35 @@
+[package]
+name = "claude-usage-meter"
+version = "0.1.0"
+description = "Windows tray app showing Claude usage and limits"
+authors = ["rakesh@digitals.ai"]
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+# The `_lib` suffix may seem redundant but it is necessary
+# to make the lib name unique and wouldn't conflict with the bin name.
+# This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
+name = "claude_usage_meter_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon", "image-png"] }
+tauri-plugin-autostart = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+chrono = { version = "0.4", features = ["serde"] }
+dirs = "5"
+tiny-skia = "0.11"
+keyring = { version = "3", features = ["windows-native"] }
+thiserror = "2"
+
+[dev-dependencies]
+wiremock = "0.6"
+tempfile = "3"

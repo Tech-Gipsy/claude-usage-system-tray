@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Settings</title>
+    <link rel="stylesheet" href="/src/settings.css" />
+    <script type="module" src="/src/settings.ts"></script>
+  </head>
+  <body class="settings-body">
+    <h1>Settings</h1>
+    <label for="key">Anthropic Admin API key (for API spend — optional)</label>
+    <input id="key" type="password" placeholder="sk-ant-admin..." />
+    <div class="row">
+      <button id="save">Save</button>
+      <button id="clear" class="secondary">Clear</button>
+    </div>
+    <div id="status" class="status"></div>
+  </body>
+</html>
