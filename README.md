@@ -4,21 +4,9 @@ A minimal Windows system-tray app that shows your Claude usage at a glance.
 
 The tray icon is a live progress ring of your **session (5-hour) limit** — green, amber, or red as you approach it. Hover the icon for the full picture:
 
-```
-┌──────────────────────────────┐
-│  Claude Usage                │
-│  Session   ▓▓▓▓▓▓░░░░  62%   │
-│  resets 2:30 PM              │
-│  Weekly    ▓▓▓░░░░░░░  34%   │
-│  resets Thu                  │
-│                              │
-│  Today        1.2M tok $4.10 │
-│  ▁▃▂▅▇▄▆   last 7 days       │
-│  Total (30d)  28M tok  ≈$96  │
-│                              │
-│  API key spend (mo)   $12.40 │
-└──────────────────────────────┘
-```
+<p align="center">
+  <img src="assets/popup.png" width="340" alt="Hover popup: session and weekly limit bars with reset times, today's tokens and cost, 7-day sparkline, 30-day total">
+</p>
 
 ## Features
 
