@@ -1,8 +1,8 @@
 # Claude Usage Meter
 
-A minimal Windows system-tray app that shows your Claude usage at a glance.
+A minimal system-tray (menu-bar) app for Windows, macOS, and Linux that shows your Claude usage at a glance.
 
-The tray icon is a live progress ring of your **session (5-hour) limit** — green, amber, or red as you approach it. Hover the icon for the full picture:
+The tray icon is a live progress ring of your **session (5-hour) limit** — green, amber, or red as you approach it. Hover the icon (or, on Linux, right-click → **Show usage…**) for the full picture:
 
 <p align="center">
   <img src="assets/popup.png" width="340" alt="Hover popup: session and weekly limit bars with reset times, today's tokens and cost, 7-day sparkline, 30-day total">
@@ -12,25 +12,34 @@ The tray icon is a live progress ring of your **session (5-hour) limit** — gre
 
 - **Session & weekly limits** — the same numbers as Claude Code's `/usage`, fetched with your existing Claude Code login. No setup.
 - **Local usage stats** — today's tokens and cost, a 7-day sparkline, and a 30-day total, computed from Claude Code's local transcript data (cost for older history is a blended-rate estimate, marked `≈`).
-- **API key spend (optional)** — month-to-date organization spend via the Anthropic Admin API. Save an admin key (`sk-ant-admin…`) in Settings; it's stored in Windows Credential Manager, never on disk.
-- **Tray niceties** — hover to peek, click to pin, `Esc` to dismiss. Right-click for Refresh now, Settings, Start with Windows, Quit.
+- **API key spend (optional)** — month-to-date organization spend via the Anthropic Admin API. Save an admin key (`sk-ant-admin…`) in Settings; it's stored in your OS secret store (Windows Credential Manager / macOS Keychain / Linux Secret Service), never on disk.
+- **Tray niceties** — on Windows and macOS, hover to peek, click to pin, `Esc` to dismiss. On Linux, right-click the tray icon → **Show usage…** (the Linux tray has no hover/left-click events). Right-click everywhere for Refresh now, Settings, Start at login, Quit.
 - Lightweight: ~3 MB installer, ~45 MB RAM, no Electron.
 
 ## Requirements
 
-- Windows 10/11
+- Windows 10/11, macOS 12+, or a Linux desktop with a system tray (StatusNotifier/AppIndicator) and a Secret Service keyring (gnome-keyring or KWallet) for the optional admin-key feature
 - [Claude Code](https://claude.com/claude-code) installed and signed in (limits and local stats read from `~/.claude`)
 
 ## Install
 
-Grab the installer from [Releases](../../releases), or build from source:
+Grab the binary for your OS from [Releases](../../releases):
 
-```powershell
+- **Windows** — `.exe` NSIS installer
+- **macOS** — `.dmg`
+- **Linux** — `.deb` (Debian/Ubuntu/Mint)
+
+The release binaries are **unsigned** (open-source, no paid signing certs yet):
+
+- **macOS:** Gatekeeper will block the first launch. Right-click the app → **Open**, then confirm; or run `xattr -dr com.apple.quarantine "/Applications/Claude Usage Meter.app"`.
+- **Windows:** SmartScreen may warn. Click **More info → Run anyway**.
+
+Or build from source:
+
+```sh
 # prerequisites: Rust (stable), Node 20+
 npm install
 npm run tauri build
-# installer: src-tauri/target/release/bundle/nsis/
-# portable:  src-tauri/target/release/claude-usage-meter.exe
 ```
 
 For development: `npm run tauri dev`.
@@ -48,7 +57,7 @@ Everything degrades gracefully: network down or token expired shows last-known d
 ## Privacy & safety notes
 
 - The OAuth token is read from (and on expiry, refreshed back into) Claude Code's own credentials file — writes are atomic and yield if Claude Code refreshed first.
-- The Admin API key lives in Windows Credential Manager under `claude-usage-meter`.
+- The Admin API key lives in your OS secret store (Windows Credential Manager / macOS Keychain / Linux Secret Service) under `claude-usage-meter`.
 - No telemetry, no third-party endpoints.
 
 ## Tests
