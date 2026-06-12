@@ -142,6 +142,10 @@ pub fn run() {
         .setup(|app| {
             let handle = app.handle().clone();
 
+            // macOS: live in the menu bar only — no Dock icon, no app menu.
+            #[cfg(target_os = "macos")]
+            app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+
             // right-click menu
             let refresh = MenuItem::with_id(app, "refresh", "Refresh now", true, None::<&str>)?;
             let settings = MenuItem::with_id(app, "settings", "Settings…", true, None::<&str>)?;
