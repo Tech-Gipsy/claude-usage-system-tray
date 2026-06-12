@@ -166,6 +166,7 @@ pub fn run() {
                 None::<&str>,
             )?;
             let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
+            #[cfg_attr(not(target_os = "linux"), allow(unused_mut))]
             let mut menu_builder = MenuBuilder::new(app);
             #[cfg(target_os = "linux")]
             {
