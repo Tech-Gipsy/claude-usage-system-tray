@@ -67,7 +67,7 @@ pub async fn fetch_month_to_date(
     Ok(total_cents / 100.0)
 }
 
-// ---------- Windows Credential Manager storage ----------
+// ---------- OS secret-store storage (Credential Manager / Keychain / Secret Service) ----------
 
 pub fn save_admin_key(key: &str) -> Result<(), String> {
     keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER)
