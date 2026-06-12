@@ -153,7 +153,7 @@ pub fn run() {
             let autostart = CheckMenuItem::with_id(
                 app,
                 "autostart",
-                "Start with Windows",
+                "Start at login",
                 true,
                 initial_autostart,
                 None::<&str>,
