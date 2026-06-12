@@ -147,6 +147,9 @@ pub fn run() {
             app.set_activation_policy(tauri::ActivationPolicy::Accessory);
 
             // right-click menu
+            #[cfg(target_os = "linux")]
+            let show_usage =
+                MenuItem::with_id(app, "show_usage", "Show usage…", true, None::<&str>)?;
             let refresh = MenuItem::with_id(app, "refresh", "Refresh now", true, None::<&str>)?;
             let settings = MenuItem::with_id(app, "settings", "Settings…", true, None::<&str>)?;
             // Query authoritative autostart state so the checkbox reflects reality on first open.
@@ -163,7 +166,12 @@ pub fn run() {
                 None::<&str>,
             )?;
             let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
-            let menu = MenuBuilder::new(app)
+            let mut menu_builder = MenuBuilder::new(app);
+            #[cfg(target_os = "linux")]
+            {
+                menu_builder = menu_builder.item(&show_usage).separator();
+            }
+            let menu = menu_builder
                 .item(&refresh)
                 .item(&settings)
                 .item(&autostart)
@@ -203,6 +211,18 @@ pub fn run() {
                             // Sync checkbox to authoritative state (click may auto-toggle visually).
                             let new_state = mgr.is_enabled().unwrap_or(false);
                             let _ = autostart_item.set_checked(new_state);
+                        }
+                        #[cfg(target_os = "linux")]
+                        "show_usage" => {
+                            if let Some(win) = app.get_webview_window("popup") {
+                                let _ = win.center();
+                                let _ = win.show();
+                                let _ = win.set_focus();
+                                // Pin so the existing focus-loss / Esc handlers dismiss it.
+                                app.state::<Arc<HoverState>>()
+                                    .pinned
+                                    .store(true, Ordering::Relaxed);
+                            }
                         }
                         "quit" => app.exit(0),
                         _ => {}
