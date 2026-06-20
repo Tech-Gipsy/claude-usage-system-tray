@@ -313,6 +313,23 @@ mod tests {
             .to_string()
     }
 
+    /// Copy a fixture into place and stamp its mtime to now.
+    ///
+    /// `recent_transcripts` filters by file mtime (last `days` days). The committed
+    /// fixtures age over time, and `std::fs::copy` PRESERVES the source mtime on Windows
+    /// (CopyFileEx) while resetting it to now on Unix — so a plain copy makes these tests
+    /// pass on CI but flake on a Windows dev box once the fixture is older than the window.
+    /// Stamping mtime to now makes the recency scan deterministic on every platform.
+    fn copy_recent(src: std::path::PathBuf, dst: std::path::PathBuf) {
+        std::fs::copy(&src, &dst).unwrap();
+        std::fs::OpenOptions::new()
+            .write(true)
+            .open(&dst)
+            .unwrap()
+            .set_modified(std::time::SystemTime::now())
+            .unwrap();
+    }
+
     #[test]
     fn parses_stats_cache_daily_tokens() {
         let days = read_stats_cache(&fixture("stats-cache.json")).unwrap();
@@ -341,7 +358,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let proj = tmp.path().join("projects/p1");
         std::fs::create_dir_all(&proj).unwrap();
-        std::fs::copy(fixture("transcript.jsonl"), proj.join("t.jsonl")).unwrap();
+        copy_recent(fixture("transcript.jsonl"), proj.join("t.jsonl"));
         let mut cache = FileCache::default();
         let entries = load_recent_entries(tmp.path(), 8, &mut cache);
         // The two fixture timestamps (2026-06-10T08:00:00Z and 2026-06-10T09:00:00Z)
@@ -360,7 +377,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let proj = tmp.path().join("projects/p1");
         std::fs::create_dir_all(&proj).unwrap();
-        std::fs::copy(fixture("transcript.jsonl"), proj.join("t.jsonl")).unwrap();
+        copy_recent(fixture("transcript.jsonl"), proj.join("t.jsonl"));
         std::fs::copy(fixture("stats-cache.json"), tmp.path().join("stats-cache.json")).unwrap();
 
         // Use local_date so the today arg matches the local bucket date for the fixture entries.
@@ -381,8 +398,8 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let proj = tmp.path().join("projects/p1");
         std::fs::create_dir_all(&proj).unwrap();
-        std::fs::copy(fixture("transcript.jsonl"), proj.join("a.jsonl")).unwrap();
-        std::fs::copy(fixture("transcript.jsonl"), proj.join("b.jsonl")).unwrap();
+        copy_recent(fixture("transcript.jsonl"), proj.join("a.jsonl"));
+        copy_recent(fixture("transcript.jsonl"), proj.join("b.jsonl"));
         let mut cache = FileCache::default();
         let entries = load_recent_entries(tmp.path(), 8, &mut cache);
         assert_eq!(entries.len(), 2); // same content in both files counted once
@@ -393,7 +410,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let proj = tmp.path().join("projects/p1");
         std::fs::create_dir_all(&proj).unwrap();
-        std::fs::copy(fixture("transcript.jsonl"), proj.join("a.jsonl")).unwrap();
+        copy_recent(fixture("transcript.jsonl"), proj.join("a.jsonl"));
         let mut cache = FileCache::default();
         let first = load_recent_entries(tmp.path(), 8, &mut cache);
         let second = load_recent_entries(tmp.path(), 8, &mut cache);
