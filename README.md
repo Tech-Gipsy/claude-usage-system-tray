@@ -31,7 +31,11 @@ Grab the binary for your OS from [Releases](../../releases):
 
 The release binaries are **unsigned** (open-source, no paid signing certs yet):
 
-- **macOS:** Gatekeeper will block the first launch. Right-click the app → **Open**, then confirm; or run `xattr -dr com.apple.quarantine "/Applications/Claude Usage Meter.app"`.
+- **macOS:** on first launch macOS may say *"Claude Usage Meter is damaged and can't be opened."* It isn't damaged — that's Gatekeeper blocking an unsigned app downloaded from the internet (especially on Apple Silicon). Drag the app to **Applications**, then clear the quarantine flag:
+  ```sh
+  xattr -cr "/Applications/Claude Usage Meter.app"
+  ```
+  Then open it normally. (Right-click → **Open** does *not* clear the "damaged" state for unsigned Apple-Silicon apps — use the command above.)
 - **Windows:** SmartScreen may warn. Click **More info → Run anyway**.
 
 Or build from source:
