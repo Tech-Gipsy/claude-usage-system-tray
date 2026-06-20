@@ -1,6 +1,6 @@
 use crate::snapshot::Limits;
 use serde::Deserialize;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 pub const USAGE_BASE: &str = "https://api.anthropic.com";
 pub const TOKEN_BASE: &str = "https://console.anthropic.com";
@@ -69,6 +69,83 @@ impl CredStore {
             }
         }
     }
+
+    /// Persist the raw credentials JSON back to the backing store. Best-effort:
+    /// callers still return the in-memory fresh token if this fails.
+    fn write_raw(&self, json: &str) -> Result<(), LimitsError> {
+        match self {
+            CredStore::File(path) => {
+                // Atomic: write to a temp file in the same dir, then rename.
+                let tmp = path.with_extension("json.tmp");
+                std::fs::write(&tmp, json).map_err(|e| LimitsError::Bad(e.to_string()))?;
+                std::fs::rename(&tmp, path).map_err(|e| {
+                    let _ = std::fs::remove_file(&tmp);
+                    LimitsError::Bad(e.to_string())
+                })
+            }
+            #[cfg(target_os = "macos")]
+            CredStore::Keychain => keychain_write(json),
+        }
+    }
+}
+
+/// Parse the account from `security find-generic-password` attribute output.
+/// The relevant line looks like:    "acct"<blob>="the-account"
+/// (Pure/testable; compiled on macOS and under test.)
+#[cfg(any(target_os = "macos", test))]
+fn parse_keychain_account(text: &str) -> Option<String> {
+    for line in text.lines() {
+        let line = line.trim();
+        if let Some(rest) = line.strip_prefix("\"acct\"") {
+            if let Some(eq) = rest.find("=\"") {
+                let val = &rest[eq + 2..];
+                if let Some(end) = val.rfind('"') {
+                    return Some(val[..end].to_string());
+                }
+            }
+        }
+    }
+    None
+}
+
+/// The account ("-a") of Claude Code's existing Keychain item. Needed so an update
+/// targets the same item instead of creating a duplicate; if it can't be determined
+/// we skip the write rather than risk a dup.
+#[cfg(target_os = "macos")]
+fn keychain_account() -> Option<String> {
+    let out = std::process::Command::new("/usr/bin/security")
+        .args(["find-generic-password", "-s", MACOS_KEYCHAIN_SERVICE])
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    parse_keychain_account(&String::from_utf8_lossy(&out.stdout))
+}
+
+/// Update Claude Code's Keychain item in place (`-U`) with new credentials JSON.
+#[cfg(target_os = "macos")]
+fn keychain_write(json: &str) -> Result<(), LimitsError> {
+    let account = keychain_account()
+        .ok_or_else(|| LimitsError::Bad("keychain account not found".into()))?;
+    let status = std::process::Command::new("/usr/bin/security")
+        .args([
+            "add-generic-password",
+            "-U",
+            "-a",
+            &account,
+            "-s",
+            MACOS_KEYCHAIN_SERVICE,
+            "-w",
+            json,
+        ])
+        .status()
+        .map_err(|e| LimitsError::Bad(e.to_string()))?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(LimitsError::Bad("keychain update failed".into()))
+    }
 }
 
 fn parse_credentials(raw: &str) -> Result<Credentials, LimitsError> {
@@ -133,32 +210,23 @@ struct TokenResponse {
     expires_in: Option<u64>,
 }
 
-/// Refresh the OAuth token and persist it back to the credentials file,
-/// preserving fields we don't model.
+/// Refresh the OAuth token and persist it back to the store, preserving fields we
+/// don't model. Works for both the file (Windows/Linux) and the macOS Keychain.
 ///
-/// Safety rules (credentials file is ALSO written by Claude Code itself):
+/// Safety rules (the store is ALSO written by Claude Code itself):
 /// 1. Fails fast if refresh_token is empty (NoRefreshToken).
-/// 2. After POST succeeds, re-reads the file; if refreshToken changed (Claude Code
+/// 2. After POST succeeds, re-reads the store; if refreshToken changed (Claude Code
 ///    already refreshed), skips the write but still returns fresh Credentials.
-/// 3. Writes atomically via a temp file + rename in the same directory.
-/// 4. If persistence fails the fresh Credentials are still returned (in-flight
-///    retry continues to work); the error is not propagated.
+/// 3. Persists via the store (atomic temp+rename for files; `security -U` for Keychain).
+/// 4. If persistence fails the fresh Credentials are still returned (in-flight retry
+///    keeps working); the error is not propagated.
 pub async fn refresh_credentials(
     token_base: &str,
     store: &CredStore,
 ) -> Result<Credentials, LimitsError> {
-    // On macOS the credentials live in Claude Code's Keychain item, which Claude Code
-    // owns and refreshes itself. We do NOT self-refresh there — rotating the refresh
-    // token would invalidate Claude Code's own copy. Callers treat this as "stale until
-    // Claude Code refreshes". File-backed platforms keep the existing refresh+persist.
-    let creds_path: &Path = match store {
-        CredStore::File(p) => p.as_path(),
-        #[cfg(target_os = "macos")]
-        CredStore::Keychain => return Err(LimitsError::Unauthorized),
-    };
     let creds = read_credentials(store)?;
 
-    // (7) Fail fast on empty refresh token — no network call needed.
+    // (1) Fail fast on empty refresh token — no network call needed.
     if creds.refresh_token.is_empty() {
         return Err(LimitsError::NoRefreshToken);
     }
@@ -175,7 +243,7 @@ pub async fn refresh_credentials(
 
     let status = resp.status();
 
-    // (5) Only 400/401 map to Unauthorized; everything else is Bad.
+    // Only 400/401 map to Unauthorized; everything else is Bad.
     if !status.is_success() {
         if status == reqwest::StatusCode::BAD_REQUEST
             || status == reqwest::StatusCode::UNAUTHORIZED
@@ -192,26 +260,19 @@ pub async fn refresh_credentials(
         refresh_token: tok.refresh_token.clone().unwrap_or(creds.refresh_token.clone()),
     };
 
-    // (2) Re-read the file; if refreshToken already changed, another writer (Claude
+    // (2) Re-read the store; if refreshToken already changed, another writer (Claude
     //     Code) won — skip the write entirely but still return the fresh token.
-    let raw = match std::fs::read_to_string(creds_path) {
+    let raw = match store.read_raw() {
         Ok(r) => r,
-        Err(_) => {
-            // Can't read the file; skip persistence, return fresh creds.
-            eprintln!("claude-usage-meter: could not re-read credentials file; skipping persist");
-            return Ok(fresh);
-        }
+        Err(_) => return Ok(fresh),
     };
-    let mut v: serde_json::Value = match serde_json::from_str(&raw) {
+    let mut v: serde_json::Value = match serde_json::from_str(raw.trim()) {
         Ok(v) => v,
-        Err(_) => {
-            eprintln!("claude-usage-meter: credentials file unparseable; skipping persist");
-            return Ok(fresh);
-        }
+        Err(_) => return Ok(fresh),
     };
 
-    let on_disk_rt = v["claudeAiOauth"]["refreshToken"].as_str().unwrap_or_default();
-    if on_disk_rt != creds.refresh_token {
+    let on_store_rt = v["claudeAiOauth"]["refreshToken"].as_str().unwrap_or_default();
+    if on_store_rt != creds.refresh_token {
         // Another writer already refreshed — skip to avoid clobbering.
         return Ok(fresh);
     }
@@ -226,19 +287,9 @@ pub async fn refresh_credentials(
         v["claudeAiOauth"]["expiresAt"] = ms.into();
     }
 
-    // (1) Atomic write: write to a temp file in the same directory, then rename.
+    // (3,4) Best-effort persist; on failure the fresh token is still returned.
     let serialized = serde_json::to_string(&v).unwrap();
-    let tmp = creds_path.with_extension("json.tmp");
-    if let Err(_e) = std::fs::write(&tmp, &serialized) {
-        // (6) Persistence failure must not lose the fresh token.
-        eprintln!("claude-usage-meter: could not write temporary credentials file; skipping persist");
-        return Ok(fresh);
-    }
-    if let Err(_e) = std::fs::rename(&tmp, creds_path) {
-        // Best-effort cleanup; ignore error.
-        let _ = std::fs::remove_file(&tmp);
-        eprintln!("claude-usage-meter: could not atomically replace credentials file; skipping persist");
-    }
+    let _ = store.write_raw(&serialized);
 
     Ok(fresh)
 }
@@ -278,6 +329,18 @@ mod tests {
         let creds = read_credentials(&CredStore::File(fixture("credentials.json"))).unwrap();
         assert_eq!(creds.access_token, "sk-ant-oat01-test");
         assert_eq!(creds.refresh_token, "sk-ant-ort01-test");
+    }
+
+    #[test]
+    fn parses_keychain_account_from_security_output() {
+        // Representative `security find-generic-password -s ...` attribute dump.
+        let out = "keychain: \"/Users/me/Library/Keychains/login.keychain-db\"\n\
+                   class: \"genp\"\n\
+                   attributes:\n    \
+                   \"acct\"<blob>=\"cyberstudio\"\n    \
+                   \"svce\"<blob>=\"Claude Code-credentials\"\n";
+        assert_eq!(parse_keychain_account(out).as_deref(), Some("cyberstudio"));
+        assert_eq!(parse_keychain_account("no account here"), None);
     }
 
     #[tokio::test]
