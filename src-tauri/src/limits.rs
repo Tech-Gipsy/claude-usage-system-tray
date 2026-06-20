@@ -1,6 +1,6 @@
 use crate::snapshot::Limits;
 use serde::Deserialize;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 pub const USAGE_BASE: &str = "https://api.anthropic.com";
 pub const TOKEN_BASE: &str = "https://console.anthropic.com";
@@ -33,15 +33,56 @@ pub struct Credentials {
     pub refresh_token: String,
 }
 
-pub fn read_credentials(path: &Path) -> Result<Credentials, LimitsError> {
-    let raw = std::fs::read_to_string(path).map_err(|_| LimitsError::NoCredentials)?;
+/// Where Claude Code's OAuth credentials live for this platform.
+///
+/// Windows / Linux: the plaintext `~/.claude/.credentials.json` file.
+/// macOS: Claude Code stores them in the login Keychain instead (the file does not
+/// exist), as a generic password under [`MACOS_KEYCHAIN_SERVICE`].
+pub enum CredStore {
+    File(PathBuf),
+    #[cfg(target_os = "macos")]
+    Keychain,
+}
+
+/// Generic-password service name Claude Code uses for its credentials on macOS.
+#[cfg(target_os = "macos")]
+const MACOS_KEYCHAIN_SERVICE: &str = "Claude Code-credentials";
+
+impl CredStore {
+    /// Read the raw credentials JSON from the backing store.
+    fn read_raw(&self) -> Result<String, LimitsError> {
+        match self {
+            CredStore::File(path) => {
+                std::fs::read_to_string(path).map_err(|_| LimitsError::NoCredentials)
+            }
+            #[cfg(target_os = "macos")]
+            CredStore::Keychain => {
+                // `security` prints the secret (the same JSON) to stdout, plus a newline.
+                let out = std::process::Command::new("/usr/bin/security")
+                    .args(["find-generic-password", "-s", MACOS_KEYCHAIN_SERVICE, "-w"])
+                    .output()
+                    .map_err(|_| LimitsError::NoCredentials)?;
+                if !out.status.success() {
+                    return Err(LimitsError::NoCredentials);
+                }
+                String::from_utf8(out.stdout).map_err(|_| LimitsError::NoCredentials)
+            }
+        }
+    }
+}
+
+fn parse_credentials(raw: &str) -> Result<Credentials, LimitsError> {
     let v: serde_json::Value =
-        serde_json::from_str(&raw).map_err(|_| LimitsError::NoCredentials)?;
+        serde_json::from_str(raw.trim()).map_err(|_| LimitsError::NoCredentials)?;
     let oauth = &v["claudeAiOauth"];
     Ok(Credentials {
         access_token: oauth["accessToken"].as_str().ok_or(LimitsError::NoCredentials)?.into(),
         refresh_token: oauth["refreshToken"].as_str().unwrap_or_default().into(),
     })
+}
+
+pub fn read_credentials(store: &CredStore) -> Result<Credentials, LimitsError> {
+    parse_credentials(&store.read_raw()?)
 }
 
 #[derive(Deserialize)]
@@ -104,9 +145,18 @@ struct TokenResponse {
 ///    retry continues to work); the error is not propagated.
 pub async fn refresh_credentials(
     token_base: &str,
-    creds_path: &Path,
+    store: &CredStore,
 ) -> Result<Credentials, LimitsError> {
-    let creds = read_credentials(creds_path)?;
+    // On macOS the credentials live in Claude Code's Keychain item, which Claude Code
+    // owns and refreshes itself. We do NOT self-refresh there — rotating the refresh
+    // token would invalidate Claude Code's own copy. Callers treat this as "stale until
+    // Claude Code refreshes". File-backed platforms keep the existing refresh+persist.
+    let creds_path: &Path = match store {
+        CredStore::File(p) => p.as_path(),
+        #[cfg(target_os = "macos")]
+        CredStore::Keychain => return Err(LimitsError::Unauthorized),
+    };
+    let creds = read_credentials(store)?;
 
     // (7) Fail fast on empty refresh token — no network call needed.
     if creds.refresh_token.is_empty() {
@@ -195,19 +245,19 @@ pub async fn refresh_credentials(
 
 /// High-level: read creds → fetch; on 401 check for a newer token on disk first,
 /// then refresh once and retry. 403 is propagated without refreshing.
-pub async fn get_limits(usage_base: &str, token_base: &str, creds_path: &Path) -> Result<Limits, LimitsError> {
-    let creds = read_credentials(creds_path)?;
+pub async fn get_limits(usage_base: &str, token_base: &str, store: &CredStore) -> Result<Limits, LimitsError> {
+    let creds = read_credentials(store)?;
     match fetch_limits(usage_base, &creds.access_token).await {
         Err(LimitsError::Unauthorized) => {
-            // (2) Check if Claude Code already refreshed the token on disk.
-            if let Ok(on_disk) = read_credentials(creds_path) {
-                if on_disk.access_token != creds.access_token {
-                    // A fresher token is already on disk — retry without refreshing.
-                    return fetch_limits(usage_base, &on_disk.access_token).await;
+            // (2) Check if Claude Code already refreshed the token (file or Keychain).
+            if let Ok(latest) = read_credentials(store) {
+                if latest.access_token != creds.access_token {
+                    // A fresher token is already stored — retry without refreshing.
+                    return fetch_limits(usage_base, &latest.access_token).await;
                 }
             }
-            // Token on disk is unchanged — we must refresh.
-            let fresh = refresh_credentials(token_base, creds_path).await?;
+            // Token is unchanged — refresh (a no-op error on macOS Keychain).
+            let fresh = refresh_credentials(token_base, store).await?;
             fetch_limits(usage_base, &fresh.access_token).await
         }
         // (3) 403 is not refreshable — propagate immediately.
@@ -225,7 +275,7 @@ mod tests {
 
     #[test]
     fn reads_credentials_file() {
-        let creds = read_credentials(&fixture("credentials.json")).unwrap();
+        let creds = read_credentials(&CredStore::File(fixture("credentials.json"))).unwrap();
         assert_eq!(creds.access_token, "sk-ant-oat01-test");
         assert_eq!(creds.refresh_token, "sk-ant-ort01-test");
     }
@@ -279,7 +329,9 @@ mod tests {
         let creds_path = tmp.path().join(".credentials.json");
         std::fs::copy(fixture("credentials.json"), &creds_path).unwrap();
 
-        let creds = refresh_credentials(&server.uri(), &creds_path).await.unwrap();
+        let creds = refresh_credentials(&server.uri(), &CredStore::File(creds_path.clone()))
+            .await
+            .unwrap();
         assert_eq!(creds.access_token, "new-access");
 
         let raw: serde_json::Value =
@@ -313,7 +365,9 @@ mod tests {
         let creds_path = tmp.path().join(".credentials.json");
         std::fs::copy(fixture("credentials.json"), &creds_path).unwrap();
 
-        let limits = get_limits(&server.uri(), &server.uri(), &creds_path).await.unwrap();
+        let limits = get_limits(&server.uri(), &server.uri(), &CredStore::File(creds_path.clone()))
+            .await
+            .unwrap();
         assert_eq!(limits.session_pct, 10.0);
         // refreshed token persisted
         let raw: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&creds_path).unwrap()).unwrap();
@@ -330,7 +384,9 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let creds_path = tmp.path().join(".credentials.json");
         std::fs::copy(fixture("credentials.json"), &creds_path).unwrap();
-        let err = get_limits(&server.uri(), &server.uri(), &creds_path).await.unwrap_err();
+        let err = get_limits(&server.uri(), &server.uri(), &CredStore::File(creds_path.clone()))
+            .await
+            .unwrap_err();
         assert!(matches!(err, LimitsError::Forbidden));
     }
 
@@ -339,7 +395,10 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let creds_path = tmp.path().join(".credentials.json");
         std::fs::write(&creds_path, r#"{"claudeAiOauth":{"accessToken":"x","refreshToken":""}}"#).unwrap();
-        let err = refresh_credentials("http://127.0.0.1:1", &creds_path).await.err().unwrap();
+        let err = refresh_credentials("http://127.0.0.1:1", &CredStore::File(creds_path.clone()))
+            .await
+            .err()
+            .unwrap();
         assert!(matches!(err, LimitsError::NoRefreshToken));
     }
 }

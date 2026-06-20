@@ -51,8 +51,13 @@ fn publish(app: &AppHandle) {
 }
 
 pub async fn refresh_limits(app: &AppHandle) {
-    let creds_path = app.state::<AppState>().claude_dir.join(".credentials.json");
-    let result = limits::get_limits(limits::USAGE_BASE, limits::TOKEN_BASE, &creds_path).await;
+    // macOS keeps the OAuth token in Claude Code's Keychain; elsewhere it's the file.
+    #[cfg(target_os = "macos")]
+    let store = limits::CredStore::Keychain;
+    #[cfg(not(target_os = "macos"))]
+    let store =
+        limits::CredStore::File(app.state::<AppState>().claude_dir.join(".credentials.json"));
+    let result = limits::get_limits(limits::USAGE_BASE, limits::TOKEN_BASE, &store).await;
     {
         let state = app.state::<AppState>();
         let mut snap = state.snapshot.lock().unwrap();
