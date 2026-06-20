@@ -1,6 +1,6 @@
 [package]
 name = "claude-usage-meter"
-version = "0.2.0"
+version = "0.2.1"
 description = "Cross-platform tray app showing Claude usage and limits"
 authors = ["rakesh@digitals.ai"]
 edition = "2021"
