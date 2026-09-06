@@ -10,6 +10,9 @@ pub struct AppState {
     pub claude_dir: PathBuf,
     /// Last tray render: (rounded session pct, tooltip). -1 = nothing rendered yet.
     pub last_tray: Mutex<(i8, String)>,
+    /// When the meter last asked the endpoint itself rather than the display
+    /// app's cache; that fallback is throttled to [`OWN_FETCH_EVERY`].
+    pub last_own_fetch: Mutex<Option<std::time::Instant>>,
 }
 
 impl AppState {
@@ -20,6 +23,7 @@ impl AppState {
             file_cache: Mutex::new(local_stats::FileCache::default()),
             claude_dir,
             last_tray: Mutex::new((-1, String::new())),
+            last_own_fetch: Mutex::new(None),
         }
     }
 }
@@ -50,7 +54,31 @@ fn publish(app: &AppHandle) {
     let _ = app.emit("snapshot", &snap);
 }
 
+/// The meter's own endpoint fetches, when the display app's cache is not
+/// there to read, are spaced at least this far apart. The endpoint's budget
+/// is per account, and a minute was what kept it tripped.
+const OWN_FETCH_EVERY: std::time::Duration = std::time::Duration::from_secs(300);
+
 pub async fn refresh_limits(app: &AppHandle) {
+    // The display app's reading first: same endpoint, same account, and it
+    // has already paid for the request. See shared_cache.rs.
+    if let Some(path) = crate::shared_cache::display_cache_path() {
+        if let Some(l) = crate::shared_cache::read_shared(&path, chrono::Utc::now().timestamp()) {
+            app.state::<AppState>().snapshot.lock().unwrap().limits = Some(l);
+            publish(app);
+            return;
+        }
+    }
+    // No fresh shared reading: ask the endpoint ourselves, but not more
+    // often than OWN_FETCH_EVERY, whatever the loop's cadence.
+    {
+        let state = app.state::<AppState>();
+        let mut last = state.last_own_fetch.lock().unwrap();
+        if last.map(|t| t.elapsed() < OWN_FETCH_EVERY).unwrap_or(false) {
+            return;
+        }
+        *last = Some(std::time::Instant::now());
+    }
     // macOS keeps the OAuth token in Claude Code's Keychain; elsewhere it's the file.
     #[cfg(target_os = "macos")]
     let store = limits::CredStore::Keychain;

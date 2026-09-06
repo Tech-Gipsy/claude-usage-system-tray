@@ -4,6 +4,7 @@ pub mod limits;
 pub mod local_stats;
 pub mod pricing;
 pub mod scheduler;
+pub mod shared_cache;
 pub mod snapshot;
 pub mod tray_icon;
 
