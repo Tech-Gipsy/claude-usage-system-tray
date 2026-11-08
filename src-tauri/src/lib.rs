@@ -1,4 +1,5 @@
 pub mod api_spend;
+pub mod kimi;
 mod http;
 pub mod limits;
 pub mod local_stats;
