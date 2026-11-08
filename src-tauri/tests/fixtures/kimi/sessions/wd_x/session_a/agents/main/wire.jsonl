@@ -1,0 +1,5 @@
+{"type":"usage.record","agentId":"main","model":"moonshot-ai/kimi-k2.7-code","usage":{"inputOther":1000,"output":200,"inputCacheRead":3000,"inputCacheCreation":0},"usageScope":"turn","time":0}
+{"type":"usage.record","agentId":"main","model":"moonshot-ai/kimi-k2.7-code","usage":{"inputOther":500,"output":100,"inputCacheRead":1000,"inputCacheCreation":50},"usageScope":"turn","time":0}
+{"type":"usage.record","agentId":"main","model":"moonshot-ai/kimi-k2.7-code","usage":{"inputOther":9000000,"output":9000000,"inputCacheRead":9000000,"inputCacheCreation":0},"usageScope":"session","time":0}
+{"type":"turn.start","agentId":"main","time":0}
+{"type":"usage.rec

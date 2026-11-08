@@ -1,5 +1,6 @@
 pub mod balance;
 pub mod config;
+pub mod local;
 pub mod quota;
 
 use std::path::PathBuf;

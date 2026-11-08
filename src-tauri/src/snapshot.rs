@@ -54,6 +54,14 @@ pub struct LocalStats {
     pub stale: bool,
 }
 
+/// Kimi Code local usage; costs cover priced (pay-per-token) models only.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct KimiLocal {
+    pub stats: LocalStats,
+    pub unpriced_today_tokens: u64,
+    pub unpriced_30d_tokens: u64,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ApiSpend {
     pub month_to_date_usd: f64,
