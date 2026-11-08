@@ -77,10 +77,11 @@ fn arc_path(cx: f32, cy: f32, r: f32, from_frac: f32, to_frac: f32) -> Option<ti
 
 /// 32x32 RGBA split ring: left half = `left_pct` (Claude), right half = `right_pct` (Kimi).
 /// Each half is a track plus an arc growing down from 12 o'clock on its own side,
-/// colored independently; a small gap separates the halves at 12 and 6 o'clock.
+/// colored independently. Butt caps (round caps would bridge the gap) and a gap of G = 0.05 of
+/// a turn (~3.8px at 32px, ~1.9px at tray size) visibly separate the halves at 12 and 6 o'clock.
 pub fn render_split_ring(left_pct: Option<f32>, right_pct: Option<f32>) -> (Vec<u8>, u32, u32) {
     const SIZE: u32 = 32;
-    const G: f32 = 0.02;
+    const G: f32 = 0.05;
     let mut pixmap = Pixmap::new(SIZE, SIZE).unwrap();
     let cx = SIZE as f32 / 2.0;
     let cy = SIZE as f32 / 2.0;
@@ -191,6 +192,7 @@ mod tests {
     #[test]
     fn split_none_half_has_no_opaque_pixels() {
         let (rgba, w, _) = render_split_ring(Some(80.0), None);
+        assert!((0..32usize).any(|y| (18..32usize).any(|x| px(&rgba, w, x, y)[3] > 0)));
         for y in 0..32usize {
             for x in 18..32usize {
                 assert!(px(&rgba, w, x, y)[3] < 255, "opaque at {x},{y}");
@@ -201,11 +203,8 @@ mod tests {
     #[test]
     fn split_gap_at_top_is_empty() {
         let (rgba, w, _) = render_split_ring(Some(100.0), Some(100.0));
-        // The gap is centered on x=16.0 (the boundary between pixels 15 and 16) and is only
-        // ~1.5px wide, so each neighbouring pixel gets ~25% antialiased edge coverage but is
-        // never filled in: no bridge across the gap.
-        assert!(px(&rgba, w, 15, 4)[3] < 128);
-        assert!(px(&rgba, w, 16, 4)[3] < 128);
+        assert_eq!(px(&rgba, w, 16, 4)[3], 0);
+        assert_eq!(px(&rgba, w, 16, 28)[3], 0);
     }
 
     #[test]
