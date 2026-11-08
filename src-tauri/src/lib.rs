@@ -124,6 +124,22 @@ async fn set_admin_key(app: AppHandle, key: String) -> Result<(), String> {
     Ok(())
 }
 
+#[tauri::command]
+fn has_moonshot_key() -> bool {
+    kimi::balance::load_moonshot_key().is_some()
+}
+
+#[tauri::command]
+async fn set_moonshot_key(app: AppHandle, key: String) -> Result<(), String> {
+    if key.trim().is_empty() {
+        kimi::balance::clear_moonshot_key()?;
+    } else {
+        kimi::balance::save_moonshot_key(key.trim())?;
+    }
+    scheduler::refresh_kimi_balance(&app).await;
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -139,7 +155,9 @@ pub fn run() {
             popup_hover,
             set_pinned,
             has_admin_key,
-            set_admin_key
+            set_admin_key,
+            has_moonshot_key,
+            set_moonshot_key
         ])
         .setup(|app| {
             let handle = app.handle().clone();

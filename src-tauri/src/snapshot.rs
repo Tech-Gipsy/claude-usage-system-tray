@@ -5,6 +5,18 @@ pub struct UsageSnapshot {
     pub limits: Option<Limits>,
     pub local: Option<LocalStats>,
     pub api_spend: Option<ApiSpend>,
+    #[serde(default)]
+    pub kimi: Option<KimiSnapshot>,
+}
+
+/// Everything Kimi; present only when a Kimi Code install is found.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct KimiSnapshot {
+    pub has_subscription: bool,
+    pub login_expired: bool,
+    pub limits: Option<KimiLimits>,
+    pub local: Option<KimiLocal>,
+    pub balance: Option<KimiBalance>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -86,10 +98,23 @@ mod tests {
             }),
             local: None,
             api_spend: None,
+            kimi: None,
         };
         let json = serde_json::to_string(&snap).unwrap();
         let back: UsageSnapshot = serde_json::from_str(&json).unwrap();
         assert_eq!(back.limits.as_ref().unwrap().session_pct, 62.0);
         assert!(back.local.is_none());
+    }
+}
+
+#[cfg(test)]
+mod kimi_tests {
+    use super::*;
+
+    #[test]
+    fn snapshot_without_kimi_field_deserializes() {
+        let json = r#"{"limits":null,"local":null,"api_spend":null}"#;
+        let back: UsageSnapshot = serde_json::from_str(json).unwrap();
+        assert!(back.kimi.is_none());
     }
 }
