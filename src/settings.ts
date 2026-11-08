@@ -29,54 +29,6 @@ saveBtn.addEventListener("click", () =>
     await invoke("set_admin_key", { key });
     keyInput.value = "";
     await refreshStatus();
-
-const mkeyInput = document.getElementById("mkey") as HTMLInputElement;
-const mstatus = document.getElementById("mstatus")!;
-const msaveBtn = document.getElementById("msave") as HTMLButtonElement;
-const mclearBtn = document.getElementById("mclear") as HTMLButtonElement;
-
-async function refreshMoonshotStatus() {
-  try {
-    const has = await invoke<boolean>("has_moonshot_key");
-    mstatus.textContent = has
-      ? "A Moonshot key is saved in your OS secret store."
-      : "No Moonshot key saved — using Kimi Code's key if it has one.";
-  } catch (e) {
-    mstatus.textContent = "Failed to read Moonshot key status: " + e;
-  }
-}
-
-async function withMoonshotLocked(action: () => Promise<void>, failMsg: string) {
-  msaveBtn.disabled = mclearBtn.disabled = true;
-  try {
-    await action();
-  } catch (e) {
-    mstatus.textContent = failMsg + e;
-  } finally {
-    msaveBtn.disabled = mclearBtn.disabled = false;
-  }
-}
-
-msaveBtn.addEventListener("click", () =>
-  withMoonshotLocked(async () => {
-    const key = mkeyInput.value.trim();
-    await invoke("set_moonshot_key", { key });
-    mkeyInput.value = "";
-    await refreshMoonshotStatus();
-    if (key) {
-      mstatus.textContent += " Saved.";
-    }
-  }, "Failed to save: "),
-);
-
-mclearBtn.addEventListener("click", () =>
-  withMoonshotLocked(async () => {
-    await invoke("set_moonshot_key", { key: "" });
-    await refreshMoonshotStatus();
-  }, "Failed to clear: "),
-);
-
-refreshMoonshotStatus();
     if (key) {
       status.textContent += " Saved.";
     }
@@ -87,54 +39,6 @@ clearBtn.addEventListener("click", () =>
   withButtonsLocked(async () => {
     await invoke("set_admin_key", { key: "" });
     await refreshStatus();
-
-const mkeyInput = document.getElementById("mkey") as HTMLInputElement;
-const mstatus = document.getElementById("mstatus")!;
-const msaveBtn = document.getElementById("msave") as HTMLButtonElement;
-const mclearBtn = document.getElementById("mclear") as HTMLButtonElement;
-
-async function refreshMoonshotStatus() {
-  try {
-    const has = await invoke<boolean>("has_moonshot_key");
-    mstatus.textContent = has
-      ? "A Moonshot key is saved in your OS secret store."
-      : "No Moonshot key saved — using Kimi Code's key if it has one.";
-  } catch (e) {
-    mstatus.textContent = "Failed to read Moonshot key status: " + e;
-  }
-}
-
-async function withMoonshotLocked(action: () => Promise<void>, failMsg: string) {
-  msaveBtn.disabled = mclearBtn.disabled = true;
-  try {
-    await action();
-  } catch (e) {
-    mstatus.textContent = failMsg + e;
-  } finally {
-    msaveBtn.disabled = mclearBtn.disabled = false;
-  }
-}
-
-msaveBtn.addEventListener("click", () =>
-  withMoonshotLocked(async () => {
-    const key = mkeyInput.value.trim();
-    await invoke("set_moonshot_key", { key });
-    mkeyInput.value = "";
-    await refreshMoonshotStatus();
-    if (key) {
-      mstatus.textContent += " Saved.";
-    }
-  }, "Failed to save: "),
-);
-
-mclearBtn.addEventListener("click", () =>
-  withMoonshotLocked(async () => {
-    await invoke("set_moonshot_key", { key: "" });
-    await refreshMoonshotStatus();
-  }, "Failed to clear: "),
-);
-
-refreshMoonshotStatus();
   }, "Failed to clear: "),
 );
 
@@ -150,7 +54,7 @@ async function refreshMoonshotStatus() {
     const has = await invoke<boolean>("has_moonshot_key");
     mstatus.textContent = has
       ? "A Moonshot key is saved in your OS secret store."
-      : "No Moonshot key saved — using Kimi Code's key if it has one.";
+      : "No Moonshot key saved â€” using Kimi Code's key if it has one.";
   } catch (e) {
     mstatus.textContent = "Failed to read Moonshot key status: " + e;
   }

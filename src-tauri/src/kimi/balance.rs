@@ -13,7 +13,7 @@ pub fn currency_for(base_url: &str) -> &'static str {
         .ok()
         .and_then(|u| u.host_str().map(str::to_ascii_lowercase))
         .unwrap_or_default();
-    if host.ends_with("moonshot.cn") {
+    if host == "moonshot.cn" || host.ends_with(".moonshot.cn") {
         "CNY"
     } else {
         "USD"
@@ -135,6 +135,7 @@ mod tests {
     fn currency_from_host() {
         assert_eq!(currency_for("https://api.moonshot.cn/v1"), "CNY");
         assert_eq!(currency_for("https://api.moonshot.ai/v1"), "USD");
+        assert_eq!(currency_for("https://evilmoonshot.cn/v1"), "USD");
     }
 
     #[test]
