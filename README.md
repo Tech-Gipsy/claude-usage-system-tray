@@ -57,7 +57,7 @@ For development: `npm run tauri dev`.
 | Session / weekly %, when the Claude Display companion app is installed | read from that app's `usage-cache.json` while it is under 30 min old, so only one app on the machine asks the endpoint; the meter falls back to its own fetch, at most every 5 min, when the file is missing or stale |
 | Today / 7-day / 30-day stats | `~/.claude/projects/**/*.jsonl` transcripts (mtime-bounded, per-file parse cache) + `stats-cache.json` history | 30 s |
 | API spend | `GET /v1/organizations/cost_report` with your admin key | 10 min |
-| Kimi quota (5-hour / weekly) | `GET <Kimi Code base URL>/usages` with Kimi Code's login token from `~/.kimi-code/credentials/`, read-only | at most every 5 min |
+| Kimi quota (5-hour / weekly) | `GET /usages` on Kimi Code's coding endpoint (the `base_url` set in Kimi Code's `config.toml`, e.g. `https://api.kimi.ai/coding/v1`), with Kimi Code's login token from `~/.kimi-code/credentials/`, read-only | at most every 5 min |
 | Kimi local stats | `~/.kimi-code/sessions/**/wire.jsonl` | 30 s |
 | Moonshot balance | `GET /v1/users/me/balance` with the key from Kimi Code's `config.toml`, or an optional key saved in Settings | 10 min |
 
