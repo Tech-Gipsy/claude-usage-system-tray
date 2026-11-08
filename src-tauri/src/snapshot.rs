@@ -28,6 +28,14 @@ pub struct KimiLimits {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct KimiBalance {
+    pub available: f64,
+    pub currency: String, // "USD" | "CNY"
+    pub fetched_at: String,
+    pub stale: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DayStat {
     pub date: String, // YYYY-MM-DD local
     pub tokens: u64,

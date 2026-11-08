@@ -69,11 +69,7 @@ pub(crate) async fn fetch_usages_unchecked(
     let resp = crate::http::client()
         .get(url)
         .bearer_auth(access_token)
-        // Cloudflare rejects requests without a User-Agent (error 1010).
-        .header(
-            reqwest::header::USER_AGENT,
-            concat!("claude-usage-meter/", env!("CARGO_PKG_VERSION")),
-        )
+        .header(reqwest::header::USER_AGENT, super::USER_AGENT)
         .send()
         .await
         .map_err(|e| QuotaError::Http(e.to_string()))?;

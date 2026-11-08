@@ -1,7 +1,11 @@
+pub mod balance;
 pub mod config;
 pub mod quota;
 
 use std::path::PathBuf;
+
+/// Cloudflare rejects requests without a User-Agent (error 1010).
+pub(crate) const USER_AGENT: &str = concat!("claude-usage-meter/", env!("CARGO_PKG_VERSION"));
 
 /// `~/.kimi-code` if it exists and is a directory.
 pub fn kimi_dir() -> Option<PathBuf> {
