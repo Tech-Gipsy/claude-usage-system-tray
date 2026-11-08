@@ -18,6 +18,16 @@ pub struct Limits {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct KimiLimits {
+    pub five_hour_pct: Option<f32>,
+    pub five_hour_resets_at: Option<String>,
+    pub weekly_pct: Option<f32>,
+    pub weekly_resets_at: Option<String>,
+    pub fetched_at: String,
+    pub stale: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DayStat {
     pub date: String, // YYYY-MM-DD local
     pub tokens: u64,
