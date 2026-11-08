@@ -13,6 +13,7 @@ The tray icon is a live progress ring of your **session (5-hour) limit** — gre
 - **Session & weekly limits** — the same numbers as Claude Code's `/usage`, fetched with your existing Claude Code login. No setup.
 - **Local usage stats** — today's tokens and cost, a 7-day sparkline, and a 30-day total, computed from Claude Code's local transcript data (cost for older history is a blended-rate estimate, marked `≈`).
 - **API key spend (optional)** — month-to-date organization spend via the Anthropic Admin API. Save an admin key (`sk-ant-admin…`) in Settings; it's stored in your OS secret store (Windows Credential Manager / macOS Keychain / Linux Secret Service), never on disk.
+- **Kimi Code (optional)** — appears automatically when `~/.kimi-code` exists. Weekly + 5-hour quota from Kimi Code's own login, Moonshot API balance, and local token stats. When Kimi Code is signed in with a subscription, the tray ring becomes a split ring: left = Claude weekly, right = Kimi weekly. The popup gets **Claude | Kimi** tabs.
 - **Tray niceties** — on Windows and macOS, hover to peek, click to pin, `Esc` to dismiss. On Linux, right-click the tray icon → **Show usage…** (the Linux tray has no hover/left-click events). Right-click everywhere for Refresh now, Settings, Start at login, Quit.
 - Lightweight: ~3 MB installer, ~45 MB RAM, no Electron.
 
@@ -56,20 +57,25 @@ For development: `npm run tauri dev`.
 | Session / weekly %, when the Claude Display companion app is installed | read from that app's `usage-cache.json` while it is under 30 min old, so only one app on the machine asks the endpoint; the meter falls back to its own fetch, at most every 5 min, when the file is missing or stale |
 | Today / 7-day / 30-day stats | `~/.claude/projects/**/*.jsonl` transcripts (mtime-bounded, per-file parse cache) + `stats-cache.json` history | 30 s |
 | API spend | `GET /v1/organizations/cost_report` with your admin key | 10 min |
+| Kimi quota (5-hour / weekly) | `GET <Kimi Code base URL>/usages` with Kimi Code's login token from `~/.kimi-code/credentials/`, read-only | at most every 5 min |
+| Kimi local stats | `~/.kimi-code/sessions/**/wire.jsonl` | 30 s |
+| Moonshot balance | `GET /v1/users/me/balance` with the key from Kimi Code's `config.toml`, or an optional key saved in Settings | 10 min |
 
-Everything degrades gracefully: network down or token expired shows last-known data with a `stale` badge — no error dialogs. The app never sends your data anywhere except to Anthropic's own APIs.
+Everything degrades gracefully: network down or token expired shows last-known data with a `stale` badge — no error dialogs. The Kimi login is never refreshed by the meter, so if Kimi Code hasn't run recently its numbers show last-known values marked stale. The app never sends your data anywhere except to Anthropic's own APIs and, for Kimi, to Moonshot/Kimi's APIs.
 
 ## Privacy & safety notes
 
 - The OAuth token is read from (and on expiry, refreshed back into) Claude Code's own credentials file — writes are atomic and yield if Claude Code refreshed first.
 - The Admin API key lives in your OS secret store (Windows Credential Manager / macOS Keychain / Linux Secret Service) under `claude-usage-meter`.
-- No telemetry, no third-party endpoints.
+- Kimi Code's login is read-only: the meter reads it from `~/.kimi-code/credentials/` and never writes or refreshes it. It is only sent to `kimi.com`, `kimi.ai`, `moonshot.ai`, or `moonshot.cn` hosts, over https only.
+- An optional Moonshot API key saved in Settings is stored in the same OS secret store under `claude-usage-meter`.
+- No telemetry. The only third-party endpoints are Anthropic's, Kimi's, and Moonshot's, and only when the matching feature is in use.
 
 ## Tests
 
 ```powershell
 cd src-tauri
-cargo test   # 28 tests: JSONL parsing/dedup, pricing, OAuth refresh paths (mocked), cost-report pagination, icon rendering
+cargo test   # 77 tests: JSONL parsing/dedup, pricing, OAuth refresh paths (mocked), cost-report pagination, icon rendering, Kimi config/local stats
 ```
 
 ## License
