@@ -20,3 +20,4 @@ body {
 }
 .settings-body button.secondary { background: rgba(255,255,255,0.1); }
 .settings-body .status { margin-top: 10px; font-size: 12px; color: #9b9ba3; }
+.settings-body .status + label { margin-top: 18px; }

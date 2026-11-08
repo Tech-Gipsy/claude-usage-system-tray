@@ -31,7 +31,7 @@
         "url": "settings.html",
         "title": "Settings — Claude Usage Meter",
         "width": 420,
-        "height": 260,
+        "height": 380,
         "visible": false,
         "resizable": false,
         "center": true

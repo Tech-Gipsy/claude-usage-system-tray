@@ -79,26 +79,28 @@ function limitRow(label: string, pct: number | null, resetsAt: string | null): s
     </div>`;
 }
 
-function renderLocal(l: LocalStats | null, emptyHint: string, unpricedToday = 0): string {
+function renderLocal(l: LocalStats | null, emptyHint: string, unpricedToday = 0, unpriced30d = 0): string {
   if (!l) return `<div class="hint">${emptyHint}</div>`;
   const max = Math.max(1, ...l.days.map((d) => d.tokens));
   const bars = l.days
     .map(
       (d) =>
         `<div class="spark-bar" style="height:${Math.max(8, (d.tokens / max) * 100)}%"
-              title="${d.date} · ${fmtTokens(d.tokens)} tok${d.cost_usd != null ? " · " + fmtUsd(d.cost_usd) : ""}"></div>`,
+              title="${d.date} · ${fmtTokens(d.tokens)} tok${d.cost_usd != null ? " · " + (unpriced30d > 0 && d.cost_usd === 0 ? "incl." : fmtUsd(d.cost_usd)) : ""}"></div>`,
     )
     .join("");
   const approx = l.cost_is_estimate ? "≈" : "";
   const incl =
     unpricedToday > 0 ? ` <span title="Subscription usage has no per-token price">+ incl.</span>` : "";
+  const incl30 =
+    unpriced30d > 0 ? ` <span title="Subscription usage has no per-token price">+ incl.</span>` : "";
   return `
     <div class="stat-row"><span class="label">Today</span>
       <span class="value">${fmtTokens(l.today_tokens)} tok&nbsp;&nbsp;${fmtUsd(l.today_cost_usd)}${incl}</span></div>
     <div class="spark">${bars}</div>
     <div class="spark-caption">last 7 days</div>
     <div class="stat-row"><span class="label">Total (30d)</span>
-      <span class="value">${fmtTokens(l.total_30d_tokens)} tok&nbsp;&nbsp;${approx}${fmtUsd(l.total_30d_cost_usd)}</span></div>`;
+      <span class="value">${fmtTokens(l.total_30d_tokens)} tok&nbsp;&nbsp;${approx}${fmtUsd(l.total_30d_cost_usd)}${incl30}</span></div>`;
 }
 
 function readTab(): Tab {
@@ -145,6 +147,7 @@ function renderKimi(k: Kimi): string {
     k.local?.stats ?? null,
     "No local Kimi Code data found",
     k.local?.unpriced_today_tokens ?? 0,
+    k.local?.unpriced_30d_tokens ?? 0,
   );
   return html;
 }

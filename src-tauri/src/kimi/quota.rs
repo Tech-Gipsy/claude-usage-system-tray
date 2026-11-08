@@ -39,19 +39,28 @@ fn entry(usages: &Value, key: &str) -> (Option<f32>, Option<String>) {
     (pct, reset)
 }
 
-pub fn parse_usages(json: &Value) -> KimiLimits {
+pub fn parse_usages(json: &Value) -> Result<KimiLimits, QuotaError> {
     let empty = Value::Null;
     let u = json.get("usages").unwrap_or(&empty);
     let (five_hour_pct, five_hour_resets_at) = entry(u, "limit_5h");
     let (weekly_pct, weekly_resets_at) = entry(u, "limit_7d");
-    KimiLimits {
+    // A 200 with neither window is not "no usage": it is an unexpected body, and
+    // reporting it as data would wipe the last-known values.
+    if five_hour_pct.is_none()
+        && five_hour_resets_at.is_none()
+        && weekly_pct.is_none()
+        && weekly_resets_at.is_none()
+    {
+        return Err(QuotaError::Parse("no usage windows in response".into()));
+    }
+    Ok(KimiLimits {
         five_hour_pct,
         five_hour_resets_at,
         weekly_pct,
         weekly_resets_at,
         fetched_at: chrono::Utc::now().to_rfc3339(),
         stale: false,
-    }
+    })
 }
 
 pub async fn fetch_usages(base_url: &str, access_token: &str) -> Result<KimiLimits, QuotaError> {
@@ -81,7 +90,7 @@ pub(crate) async fn fetch_usages_unchecked(
         return Err(QuotaError::Http(format!("status {status}")));
     }
     let body: Value = resp.json().await.map_err(|e| QuotaError::Parse(e.to_string()))?;
-    Ok(parse_usages(&body))
+    parse_usages(&body)
 }
 
 #[cfg(test)]
@@ -97,7 +106,7 @@ mod tests {
 
     #[test]
     fn parses_fixture() {
-        let l = parse_usages(&fixture_json());
+        let l = parse_usages(&fixture_json()).unwrap();
         assert_eq!(l.five_hour_pct, Some(0.25f64.mul_add(100.0, 0.0) as f32));
         assert_eq!(l.weekly_pct, Some((0.4f64 * 100.0) as f32));
         assert_eq!(l.five_hour_resets_at.as_deref(), Some("2026-11-08T18:00:00Z"));
@@ -108,7 +117,7 @@ mod tests {
     #[test]
     fn missing_weekly_is_none() {
         let v = serde_json::json!({"usages":{"limit_5h":{"used_ratio":0.3,"reset_time":"2026-11-08T18:10:00Z"}}});
-        let l = parse_usages(&v);
+        let l = parse_usages(&v).unwrap();
         assert_eq!(l.five_hour_pct, Some(30.0));
         assert_eq!(l.weekly_pct, None);
     }
@@ -116,7 +125,7 @@ mod tests {
     #[test]
     fn ratio_is_clamped() {
         let v = serde_json::json!({"usages":{"limit_7d":{"used_ratio":1.7},"limit_5h":{"used_ratio":-0.2}}});
-        let l = parse_usages(&v);
+        let l = parse_usages(&v).unwrap();
         assert_eq!(l.weekly_pct, Some(100.0));
         assert_eq!(l.five_hour_pct, Some(0.0));
     }
@@ -124,16 +133,28 @@ mod tests {
     #[test]
     fn empty_reset_time_is_none() {
         let v = serde_json::json!({"usages":{"limit_5h":{"used_ratio":0.5,"reset_time":""}}});
-        assert_eq!(parse_usages(&v).five_hour_resets_at, None);
+        assert_eq!(parse_usages(&v).unwrap().five_hour_resets_at, None);
     }
 
     #[test]
     fn numeric_string_ratio_and_junk() {
         let v = serde_json::json!({"usages":{"limit_5h":{"used_ratio":"0.5"},"limit_7d":"oops"}});
-        let l = parse_usages(&v);
+        let l = parse_usages(&v).unwrap();
         assert_eq!(l.five_hour_pct, Some(50.0));
         assert_eq!(l.weekly_pct, None);
-        assert_eq!(parse_usages(&serde_json::json!(null)).five_hour_pct, None);
+        assert!(parse_usages(&serde_json::json!(null)).is_err());
+    }
+
+    #[test]
+    fn both_windows_absent_is_parse_error() {
+        for v in [
+            serde_json::json!({}),
+            serde_json::json!({"usages":{}}),
+            serde_json::json!({"usages":{"other":{"used_ratio":0.1}}}),
+            serde_json::json!({"usages":{"limit_5h":"x","limit_7d":null}}),
+        ] {
+            assert!(matches!(parse_usages(&v), Err(QuotaError::Parse(_))), "{v}");
+        }
     }
 
     #[tokio::test]

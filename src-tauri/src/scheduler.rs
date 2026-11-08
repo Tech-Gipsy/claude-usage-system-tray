@@ -77,7 +77,8 @@ pub fn tray_render_key(snap: &UsageSnapshot) -> (TrayMode, String) {
 
 fn publish(app: &AppHandle) {
     let state = app.state::<AppState>();
-    let snap = state.snapshot.lock().unwrap().clone();
+    let mut snap = state.snapshot.lock().unwrap().clone();
+    expire_stale_limits(&mut snap, chrono::Utc::now());
 
     // tray icon + tooltip — only re-render when the rounded pcts or tooltip changed
     let (mode, tooltip) = tray_render_key(&snap);
@@ -231,6 +232,49 @@ fn with_kimi(app: &AppHandle, f: impl FnOnce(&mut KimiSnapshot)) {
     f(snap.kimi.get_or_insert_with(KimiSnapshot::default));
 }
 
+/// Stale Kimi percentages whose reset time has passed are certainly wrong
+/// (the window rolled over); blank them so tray and popup show "unknown".
+fn expire_stale_limits(snap: &mut UsageSnapshot, now: chrono::DateTime<chrono::Utc>) {
+    let Some(l) = snap.kimi.as_mut().and_then(|k| k.limits.as_mut()) else { return };
+    if !l.stale {
+        return;
+    }
+    let passed = |r: &Option<String>| {
+        r.as_deref()
+            .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+            .is_some_and(|t| t < now)
+    };
+    if passed(&l.five_hour_resets_at) {
+        l.five_hour_pct = None;
+    }
+    if passed(&l.weekly_resets_at) {
+        l.weekly_pct = None;
+    }
+}
+
+/// The not-subscribed path: drop quota and forget the fetch throttle stamp so the
+/// first tick after a subscription reappears fetches immediately.
+fn on_not_subscribed(k: &mut KimiSnapshot, last_fetch: &mut Option<std::time::Instant>) {
+    *last_fetch = None;
+    k.has_subscription = false;
+    k.limits = None;
+    k.login_expired = false;
+}
+
+/// A token that is usable now: the first read if unexpired, else one re-read
+/// (the CLI may have refreshed it), else None. Never refreshes anything itself.
+fn usable_token(
+    first: Option<kimi::config::KimiToken>,
+    reread: impl FnOnce() -> Option<kimi::config::KimiToken>,
+    now: i64,
+) -> Option<kimi::config::KimiToken> {
+    let first = first?;
+    if first.expires_at >= now {
+        return Some(first);
+    }
+    reread().filter(|t| t.expires_at >= now)
+}
+
 fn mark_kimi_failed(k: &mut KimiSnapshot, login_expired: bool) {
     if let Some(l) = k.limits.as_mut() {
         l.stale = true;
@@ -243,11 +287,11 @@ fn mark_kimi_failed(k: &mut KimiSnapshot, login_expired: bool) {
 pub async fn refresh_kimi_quota(app: &AppHandle) {
     let Some((dir, cfg)) = kimi_setup(app) else { return };
     if !kimi::config::has_subscription(&dir, &cfg) {
-        with_kimi(app, |k| {
-            k.has_subscription = false;
-            k.limits = None;
-            k.login_expired = false;
-        });
+        {
+            let state = app.state::<AppState>();
+            let mut last = state.last_kimi_fetch.lock().unwrap();
+            with_kimi(app, |k| on_not_subscribed(k, &mut last));
+        }
         publish(app);
         return;
     }
@@ -270,7 +314,12 @@ pub async fn refresh_kimi_quota(app: &AppHandle) {
         publish(app);
         return;
     };
-    let Some(token) = kimi::config::read_token(&path) else {
+    // Expired token: re-read once (the CLI may have refreshed it); still expired
+    // means skip the network call, keep last-known data, flag the login.
+    let now = chrono::Utc::now().timestamp();
+    let Some(token) =
+        usable_token(kimi::config::read_token(&path), || kimi::config::read_token(&path), now)
+    else {
         with_kimi(app, |k| mark_kimi_failed(k, true));
         publish(app);
         return;
@@ -490,5 +539,107 @@ mod tests {
         let (m, t) = tray_render_key(&snap(Some(k)));
         assert_eq!(m, TrayMode::Split(Some(42.0), None));
         assert!(t.contains("Kimi weekly —"));
+    }
+
+    fn kl(pct5: Option<f32>, r5: Option<&str>, pctw: Option<f32>, rw: Option<&str>, stale: bool) -> KimiLimits {
+        KimiLimits {
+            five_hour_pct: pct5,
+            five_hour_resets_at: r5.map(str::to_string),
+            weekly_pct: pctw,
+            weekly_resets_at: rw.map(str::to_string),
+            fetched_at: "t".into(),
+            stale,
+        }
+    }
+
+    fn at(s: &str) -> chrono::DateTime<chrono::Utc> {
+        chrono::DateTime::parse_from_rfc3339(s).unwrap().with_timezone(&chrono::Utc)
+    }
+
+    #[test]
+    fn stale_pct_past_reset_is_blanked_in_snapshot_and_tray() {
+        let k = KimiSnapshot {
+            has_subscription: true,
+            limits: Some(kl(
+                Some(80.0),
+                Some("2026-11-08T18:00:00Z"),
+                Some(60.0),
+                Some("2026-11-12T00:00:00Z"),
+                true,
+            )),
+            ..Default::default()
+        };
+        let mut s = snap(Some(k));
+        expire_stale_limits(&mut s, at("2026-11-09T00:00:00Z"));
+        let l = s.kimi.as_ref().unwrap().limits.as_ref().unwrap();
+        assert_eq!(l.five_hour_pct, None); // reset passed
+        assert_eq!(l.weekly_pct, Some(60.0)); // still ahead
+        let mut s2 = s.clone();
+        expire_stale_limits(&mut s2, at("2026-11-13T00:00:00Z"));
+        assert_eq!(s2.kimi.as_ref().unwrap().limits.as_ref().unwrap().weekly_pct, None);
+        let (m, t) = tray_render_key(&s2);
+        assert_eq!(m, TrayMode::Split(Some(42.0), None));
+        assert!(t.contains("Kimi weekly —"));
+    }
+
+    #[test]
+    fn fresh_pct_past_reset_is_kept() {
+        let k = KimiSnapshot {
+            has_subscription: true,
+            limits: Some(kl(Some(80.0), Some("2026-11-08T18:00:00Z"), None, None, false)),
+            ..Default::default()
+        };
+        let mut s = snap(Some(k));
+        expire_stale_limits(&mut s, at("2026-11-09T00:00:00Z"));
+        assert_eq!(s.kimi.unwrap().limits.unwrap().five_hour_pct, Some(80.0));
+    }
+
+    #[test]
+    fn stale_pct_without_or_with_junk_reset_is_kept() {
+        let k = KimiSnapshot {
+            limits: Some(kl(Some(80.0), None, Some(60.0), Some("garbage"), true)),
+            ..Default::default()
+        };
+        let mut s = snap(Some(k));
+        expire_stale_limits(&mut s, at("2030-01-01T00:00:00Z"));
+        let l = s.kimi.unwrap().limits.unwrap();
+        assert_eq!((l.five_hour_pct, l.weekly_pct), (Some(80.0), Some(60.0)));
+    }
+
+    #[test]
+    fn not_subscribed_resets_fetch_throttle() {
+        let mut k = KimiSnapshot {
+            has_subscription: true,
+            login_expired: true,
+            limits: Some(klimits(50.0)),
+            ..Default::default()
+        };
+        let mut last = Some(std::time::Instant::now());
+        on_not_subscribed(&mut k, &mut last);
+        assert!(!k.has_subscription && !k.login_expired && k.limits.is_none());
+        assert!(last.is_none());
+    }
+
+    fn tok(name: &str, exp: i64) -> Option<kimi::config::KimiToken> {
+        Some(kimi::config::KimiToken { access_token: name.into(), expires_at: exp })
+    }
+
+    #[test]
+    fn unexpired_token_is_used_without_reread() {
+        let t = usable_token(tok("a", 2000), || panic!("no reread"), 1000);
+        assert_eq!(t.unwrap().access_token, "a");
+    }
+
+    #[test]
+    fn expired_token_rereads_once_and_uses_fresh() {
+        let t = usable_token(tok("a", 900), || tok("b", 5000), 1000);
+        assert_eq!(t.unwrap().access_token, "b");
+    }
+
+    #[test]
+    fn still_expired_after_reread_is_none() {
+        assert!(usable_token(tok("a", 900), || tok("a", 900), 1000).is_none());
+        assert!(usable_token(tok("a", 900), || None, 1000).is_none());
+        assert!(usable_token(None, || panic!("no reread"), 1000).is_none());
     }
 }
