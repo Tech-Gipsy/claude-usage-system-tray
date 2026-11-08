@@ -30,6 +30,7 @@ body {
 .fill.green { background: #4ade80; }
 .fill.amber { background: #fbbf24; }
 .fill.red { background: #ef4444; }
+.fill.gray { background: #52525b; }
 .pct { width: 36px; text-align: right; font-variant-numeric: tabular-nums; }
 .reset { color: #6e6e76; font-size: 11px; margin-left: 60px; }
 
@@ -38,3 +39,13 @@ body {
 .spark-bar { flex: 1; min-height: 2px; border-radius: 2px; background: #7c7cf0; opacity: 0.85; }
 .spark-bar:last-child { background: #a5a5ff; }
 .spark-caption { color: #6e6e76; font-size: 11px; margin-bottom: 4px; }
+
+.tabs { display: flex; gap: 14px; }
+.tabs[hidden], #panel-kimi[hidden], #panel-claude[hidden], .title[hidden] { display: none; }
+.tab { background: none; border: none; border-bottom: 2px solid transparent; padding: 0 0 2px; font: inherit; font-weight: 600; font-size: 14px; color: #9b9ba3; cursor: pointer; }
+.tab.active { color: #e7e7ea; border-bottom-color: #e7e7ea; }
+.tab .tab-pct.green { color: #4ade80; }
+.tab .tab-pct.amber { color: #fbbf24; }
+.tab .tab-pct.red { color: #ef4444; }
+.panel-kimi .spark-bar { background: #38bdf8; }
+.panel-kimi .spark-bar:last-child { background: #7dd3fc; }

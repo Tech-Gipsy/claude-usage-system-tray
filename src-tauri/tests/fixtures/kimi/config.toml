@@ -1,0 +1,20 @@
+default_model = "moonshot-ai/kimi-k2.6"
+
+[providers."managed:kimi-code"]
+type = "kimi"
+api_key = ""
+base_url = "https://api.kimi.ai/coding/v1"
+
+[providers."managed:kimi-code".oauth]
+storage = "file"
+key = "oauth/kimi-code-env-test"
+oauth_host = "https://auth.kimi.ai"
+
+[providers.moonshot-ai]
+base_url = "https://api.moonshot.ai/v1"
+type = "kimi"
+api_key = "sk-test"
+
+[services.moonshot_search]
+base_url = "https://api.kimi.com/coding/v1/search"
+api_key = "sk-ignored"

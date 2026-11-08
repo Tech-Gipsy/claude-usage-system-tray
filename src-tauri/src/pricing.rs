@@ -20,6 +20,35 @@ const PRICES: &[(&str, f64, f64)] = &[
 
 const MTOK: f64 = 1_000_000.0;
 
+/// Moonshot list prices, USD per MTok: (model substring, input cache-miss, output, cache-hit input).
+/// Checked 2026-11-09. The official page (https://platform.kimi.ai/docs/pricing/chat) renders its
+/// tables with JS and could not be fetched, so rows are cross-checked from two trackers that
+/// agree and state they were verified against Moonshot's pages:
+/// https://developer.puter.com/tutorials/kimi-api-pricing/ and https://benchlm.ai/moonshot/api-pricing
+/// Models with no row (e.g. *-highspeed variants) are deliberately unpriced, never guessed.
+/// Most specific substrings first.
+const KIMI_PRICES: &[(&str, f64, f64, f64)] = &[
+    ("kimi-k3.1-pro", 2.0, 10.0, 0.20),
+    ("kimi-k3", 3.0, 15.0, 0.30),
+    ("kimi-k2.7-code", 0.95, 4.0, 0.19),
+    ("kimi-k2.6", 0.95, 4.0, 0.16),
+];
+
+/// Cost for a Kimi model id like `moonshot-ai/kimi-k2.6`. `kimi-code/*` is the subscription
+/// (no per-token cost) and unknown or unlisted models return None.
+pub fn kimi_cost_usd(model: &str, input: u64, output: u64, cache_read: u64) -> Option<f64> {
+    if model.starts_with("kimi-code/") {
+        return None;
+    }
+    let name = model.rsplit('/').next().unwrap_or(model);
+    let (key, inp, out, hit) = KIMI_PRICES.iter().find(|(m, ..)| name.contains(*m))?;
+    // A highspeed variant is priced differently from its base row; never reuse the base price.
+    if name.contains("highspeed") && !key.contains("highspeed") {
+        return None;
+    }
+    Some(input as f64 / MTOK * inp + output as f64 / MTOK * out + cache_read as f64 / MTOK * hit)
+}
+
 pub fn cost_usd(
     model: &str,
     input: u64,
@@ -75,5 +104,23 @@ mod tests {
     fn claude_3_opus_costs() {
         let c = cost_usd("claude-3-opus-20240229", 1_000_000, 0, 0, 0).unwrap();
         assert!((c - 15.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn subscription_models_are_unpriced() {
+        assert!(kimi_cost_usd("kimi-code/kimi-for-coding", 1_000_000, 0, 0).is_none());
+    }
+
+    #[test]
+    fn priced_model_uses_table_row() {
+        let r = KIMI_PRICES[0];
+        let c = kimi_cost_usd(&format!("moonshot-ai/{}", r.0), 1_000_000, 1_000_000, 1_000_000).unwrap();
+        assert!((c - (r.1 + r.2 + r.3)).abs() < 1e-9);
+    }
+
+    #[test]
+    fn highspeed_variants_are_not_priced_as_base() {
+        assert!(kimi_cost_usd("moonshot-ai/kimi-k3.1-pro-highspeed", 1_000_000, 0, 0).is_none());
+        assert!(kimi_cost_usd("moonshot-ai/kimi-k3", 1_000_000, 0, 0).is_some());
     }
 }

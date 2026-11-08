@@ -10,13 +10,17 @@
   <body class="popup-body">
     <div id="card" class="card">
       <div class="header">
-        <span class="title">Claude Usage</span>
+        <div id="tabs" class="tabs" hidden></div>
+        <span id="title" class="title">Claude Usage</span>
         <span id="stale" class="stale"></span>
       </div>
-      <div id="limits"></div>
-      <div class="divider"></div>
-      <div id="local"></div>
-      <div id="spend"></div>
+      <div id="panel-claude">
+        <div id="limits"></div>
+        <div class="divider"></div>
+        <div id="local"></div>
+        <div id="spend"></div>
+      </div>
+      <div id="panel-kimi" class="panel-kimi" hidden></div>
     </div>
   </body>
 </html>
