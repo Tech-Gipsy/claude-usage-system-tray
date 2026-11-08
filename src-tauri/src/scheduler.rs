@@ -41,23 +41,33 @@ pub enum TrayMode {
     Split(Option<f32>, Option<f32>),
 }
 
-/// What the tray should show; percentages are rounded to whole numbers so
-/// comparing two results tells whether a re-render is needed.
+impl TrayMode {
+    /// Whole-number percentages: the change-detection key. Rendering uses the raw values.
+    fn rounded(&self) -> TrayMode {
+        let r = |p: &Option<f32>| p.map(|p| p.round());
+        match self {
+            TrayMode::Single(p) => TrayMode::Single(r(p)),
+            TrayMode::Split(c, k) => TrayMode::Split(r(c), r(k)),
+        }
+    }
+}
+
+/// What the tray should show: raw percentages (what gets drawn, so ring colors
+/// match the popup) and the tooltip. Compare via [`TrayMode::rounded`].
 pub fn tray_render_key(snap: &UsageSnapshot) -> (TrayMode, String) {
     let subscribed = snap.kimi.as_ref().map(|k| k.has_subscription).unwrap_or(false);
     if subscribed {
-        let c = snap.limits.as_ref().map(|l| l.weekly_pct.round());
+        let c = snap.limits.as_ref().map(|l| l.weekly_pct);
         let k = snap
             .kimi
             .as_ref()
             .and_then(|k| k.limits.as_ref())
-            .and_then(|l| l.weekly_pct)
-            .map(|p| p.round());
+            .and_then(|l| l.weekly_pct);
         let fmt = |p: Option<f32>| p.map(|p| format!("{:.0}%", p)).unwrap_or_else(|| "—".into());
         let tooltip = format!("Claude weekly {} · Kimi weekly {}", fmt(c), fmt(k));
         return (TrayMode::Split(c, k), tooltip);
     }
-    let pct = snap.limits.as_ref().map(|l| l.session_pct.round());
+    let pct = snap.limits.as_ref().map(|l| l.session_pct);
     let tooltip = match &snap.limits {
         Some(l) => format!("Session {:.0}% · Weekly {:.0}%", l.session_pct, l.weekly_pct),
         None => "Claude Usage Meter".to_string(),
@@ -70,11 +80,12 @@ fn publish(app: &AppHandle) {
     let snap = state.snapshot.lock().unwrap().clone();
 
     // tray icon + tooltip — only re-render when the rounded pcts or tooltip changed
-    let key = tray_render_key(&snap);
+    let (mode, tooltip) = tray_render_key(&snap);
+    let key = (mode.rounded(), tooltip);
     {
         let mut last = state.last_tray.lock().unwrap();
         if last.as_ref() != Some(&key) {
-            let (rgba, w, h) = match &key.0 {
+            let (rgba, w, h) = match &mode {
                 TrayMode::Single(p) => tray_icon::render_ring(*p),
                 TrayMode::Split(c, k) => tray_icon::render_split_ring(*c, *k),
             };
@@ -188,12 +199,29 @@ pub async fn refresh_spend(app: &AppHandle) {
 /// Directory and config for a Kimi refresh tick; None (and the snapshot's
 /// kimi cleared) when Kimi Code is not installed. Re-read every tick.
 fn kimi_setup(app: &AppHandle) -> Option<(PathBuf, kimi::config::KimiConfig)> {
-    let found = kimi::kimi_dir().and_then(|d| kimi::config::read_config(&d).map(|c| (d, c)));
-    if found.is_none() {
+    let Some(dir) = kimi::kimi_dir() else {
         app.state::<AppState>().snapshot.lock().unwrap().kimi = None;
         publish(app);
+        return None;
+    };
+    let Some(cfg) = kimi::config::read_config(&dir) else {
+        // Config missing or mid-write: keep last-known data, mark it stale.
+        if let Some(k) = app.state::<AppState>().snapshot.lock().unwrap().kimi.as_mut() {
+            on_config_unreadable(k);
+        }
+        publish(app);
+        return None;
+    };
+    Some((dir, cfg))
+}
+
+fn on_config_unreadable(k: &mut KimiSnapshot) {
+    if let Some(l) = k.limits.as_mut() {
+        l.stale = true;
     }
-    found
+    if let Some(b) = k.balance.as_mut() {
+        b.stale = true;
+    }
 }
 
 /// Run `f` on the (get-or-created) Kimi snapshot; each refresher touches only its own fields.
@@ -387,6 +415,47 @@ mod tests {
 
     fn snap(kimi: Option<KimiSnapshot>) -> UsageSnapshot {
         UsageSnapshot { limits: Some(claude()), kimi, ..Default::default() }
+    }
+
+    #[test]
+    fn render_uses_raw_pct_but_key_is_rounded() {
+        let mut a = snap(None);
+        a.limits.as_mut().unwrap().session_pct = 59.6;
+        let mut b = a.clone();
+        b.limits.as_mut().unwrap().session_pct = 59.7;
+        let (ma, ta) = tray_render_key(&a);
+        let (mb, tb) = tray_render_key(&b);
+        assert_eq!(ma, TrayMode::Single(Some(59.6)));
+        assert_eq!(ma.rounded(), mb.rounded());
+        assert_eq!(ma.rounded(), TrayMode::Single(Some(60.0)));
+        assert_eq!(ta, tb);
+        let k = KimiSnapshot {
+            has_subscription: true,
+            limits: Some(klimits(84.6)),
+            ..Default::default()
+        };
+        let (m, _) = tray_render_key(&snap(Some(k)));
+        assert_eq!(m, TrayMode::Split(Some(42.0), Some(84.6)));
+    }
+
+    #[test]
+    fn unreadable_config_keeps_data_and_marks_stale() {
+        let mut k = KimiSnapshot {
+            has_subscription: true,
+            limits: Some(klimits(50.0)),
+            balance: Some(crate::snapshot::KimiBalance {
+                available: 1.0,
+                currency: "USD".into(),
+                fetched_at: "t".into(),
+                stale: false,
+            }),
+            ..Default::default()
+        };
+        on_config_unreadable(&mut k);
+        assert!(k.has_subscription);
+        assert!(k.limits.as_ref().unwrap().stale);
+        assert!(k.balance.as_ref().unwrap().stale);
+        assert_eq!(k.limits.as_ref().unwrap().weekly_pct, Some(50.0));
     }
 
     #[test]
